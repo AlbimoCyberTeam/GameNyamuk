@@ -1,1 +1,265 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Game Tepuk Nyamuk HP Fix</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5dc;
+            overflow: hidden;
+            font-family: sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+        #game-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 22px;
+            font-weight: bold;
+            color: #333;
+            z-index: 10;
+        }
+        .menu-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: #111111;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 20;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .btn {
+            padding: 18px 40px;
+            font-size: 22px;
+            background-color: #d32f2f;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            margin-top: 20px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            display: block;
+        }
+        .nyamuk-container {
+            width: 60px;
+            height: 60px;
+            position: absolute;
+            transform-origin: center center;
+            z-index: 5;
+        }
+        .sayap-kiri {
+            transform-origin: 28px 25px;
+            animation: kepakKiri 0.05s linear infinite alternate;
+        }
+        .sayap-kanan {
+            transform-origin: 22px 25px;
+            animation: kepakKanan 0.05s linear infinite alternate;
+        }
+        @keyframes kepakKiri { 0% { transform: rotate(0deg); } 100% { transform: rotate(-30deg); } }
+        @keyframes kepakKanan { 0% { transform: rotate(0deg); } 100% { transform: rotate(30deg); } }
 
+        .darah {
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            animation: crot 0.3s ease-out forwards;
+            z-index: 4;
+        }
+        @keyframes crot {
+            0% { transform: translate(-50%, -50%) scale(0.1); opacity: 1; }
+            50% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.9; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="hud">
+            <div>Skor: <span id="score">0</span></div>
+            <div>Waktu: <span id="time">30</span>s</div>
+        </div>
+
+        <!-- LAYAR UTAMA -->
+        <div id="start-screen" class="menu-screen">
+            <h1 style="font-size: 28px; margin-bottom: 10px;">Tepuk Nyamuk Realistis</h1>
+            <p style="font-size: 16px; color: #ccc;">Hati-hati, nyamuk sangat lincah menjauhi jari Anda!</p>
+            <button class="btn" id="btn-mulai">Mulai Permainan</button>
+        </div>
+
+        <!-- LAYAR GAME OVER -->
+        <div id="gameover-screen" class="menu-screen hidden">
+            <h1>Waktu Habis!</h1>
+            <p>Nyamuk ditepuk: <span id="final-score">0</span></p>
+            <button class="btn" id="btn-main-lagi">Main Lagi</button>
+        </div>
+    </div>
+
+    <script>
+        const container = document.getElementById('game-container');
+        const scoreDisplay = document.getElementById('score');
+        const timeDisplay = document.getElementById('time');
+        const startScreen = document.getElementById('start-screen');
+        const gameoverScreen = document.getElementById('gameover-screen');
+        const finalScoreDisplay = document.getElementById('final-score');
+        
+        let score = 0;
+        let timeLeft = 30;
+        let timerInterval;
+        let activeMosquitoes = [];
+        let touchX = 0;
+        let touchY = 0;
+
+        // Melacak pergerakan jari di layar HP
+        window.addEventListener('touchmove', (e) => {
+            if(e.touches.length > 0) {
+                touchX = e.touches[0].clientX;
+                touchY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
+        // SISTEM AUDIO AMAN: Variabel dikosongkan total di awal agar tidak diblokir browser HP
+        let audioCtx = null;
+        let flyOsc = null;
+        let flyGain = null;
+
+        function playFlySound() {
+            try {
+                // Audio baru dibuat DI DALAM fungsi saat tombol diklik, bukan saat page load
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                if (flyOsc) return;
+
+                flyOsc = audioCtx.createOscillator();
+                flyGain = audioCtx.createGain();
+                flyOsc.type = 'sawtooth';
+                flyOsc.frequency.setValueAtTime(580, audioCtx.currentTime);
+                
+                let lfo = audioCtx.createOscillator();
+                let lfoGain = audioCtx.createGain();
+                lfo.frequency.value = 45; 
+                lfoGain.gain.value = 70;
+                lfo.connect(lfoGain);
+                lfoGain.connect(flyOsc.frequency);
+                
+                flyGain.gain.setValueAtTime(0.03, audioCtx.currentTime);
+                flyOsc.connect(flyGain);
+                flyGain.connect(audioCtx.destination);
+                
+                lfo.start();
+                flyOsc.start();
+            } catch(err) { 
+                console.log("Audio diblokir sementara, game tetap berjalan."); 
+            }
+        }
+
+        function stopFlySound() {
+            if (flyOsc) {
+                try { flyOsc.stop(); flyOsc.disconnect(); } catch(e){}
+                flyOsc = null;
+            }
+        }
+
+        function playSlapSound() {
+            if (!audioCtx) return;
+            try {
+                let bufferSize = audioCtx.sampleRate * 0.12;
+                let buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+                let data = buffer.getChannelData(0);
+                for (let i = 0; i < bufferSize; i++) { data[i] = Math.random() * 2 - 1; }
+                
+                let noise = audioCtx.createBufferSource();
+                noise.buffer = buffer;
+                let filter = audioCtx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(800, audioCtx.currentTime);
+                
+                let gain = audioCtx.createGain();
+                gain.gain.setValueAtTime(0.6, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                
+                noise.connect(filter);
+                filter.connect(gain);
+                gain.connect(audioCtx.destination);
+                noise.start();
+            } catch(e){}
+        }
+
+        // AKSI TOMBOL: Menggunakan onclick langsung pada element ID
+        document.getElementById('btn-mulai').onclick = function() {
+            startGame();
+        };
+
+        document.getElementById('btn-main-lagi').onclick = function() {
+            startGame();
+        };
+
+        function startGame() {
+            // Sembunyikan menu pembuka
+            startScreen.classList.add('hidden');
+            gameoverScreen.classList.add('hidden');
+            
+            // Jalankan audio setelah interaksi klik berhasil dilakukan
+            playFlySound();
+
+            // Reset Data Permainan
+            score = 0;
+            timeLeft = 30;
+            scoreDisplay.innerText = score;
+            timeDisplay.innerText = timeLeft;
+            
+            document.querySelectorAll('.darah').forEach(d => d.remove());
+            activeMosquitoes.forEach(m => { cancelAnimationFrame(m.reqId); m.element.remove(); });
+            activeMosquitoes = [];
+            
+            // Munculkan nyamuk
+            for(let i=0; i<3; i++) { 
+                setTimeout(spawnMosquito, i * 300); 
+            }
+
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                timeDisplay.innerText = timeLeft;
+                if (timeLeft <= 0) endGame();
+            }, 1000);
+        }
+
+        function spawnMosquito() {
+            if (timeLeft <= 0) return;
+
+            const nyamuk = document.createElement('div');
+            nyamuk.classList.add('nyamuk-container');
+            
+            nyamuk.innerHTML = `
+                <svg xmlns="http://w3.org" viewBox="0 0 50 50" style="width:100%; height:100%;">
+                    <path d="M25 12 L25 2" stroke="#111" stroke-width="1"/>
+                    <path d="M20 28 C10 32, 5 40, 2 45 M30 28 C40 32, 45 40, 48 45" stroke="#222" stroke-width="1.5" fill="none"/>
+                    <path d="M18 24 L5 20 M32 24 L45 20 M22 18 L8 10 M28 18 L42 10" stroke="#333" stroke-width="1.2" fill="none"/>
+                    <g class="sayap-kiri"><ellipse cx="13" cy="22" rx="10" ry="3" fill="rgba(220,240,255,0.5)" stroke="rgba(100,150,200,0.5)" stroke-width="0.5"/></g>
+                    <g class="sayap-kanan"><ellipse cx="37" cy="22" rx="10" ry="3" fill="rgba(220,240,255,0.5)" stroke="rgba(100,150,200,0.5)" stroke-width="0.5"/></g>
